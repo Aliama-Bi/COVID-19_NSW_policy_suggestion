@@ -1,0 +1,279 @@
+---
+title: "**Suggest Responce Plan for COVID-19**"
+subtitle: "**An Analysis of current pandemics status and risk in New South Wales**"
+author:
+- "**SIDs:** 480139690"
+output:
+  html_document:
+    theme: paper
+    toc: true
+    code_folding: hide
+    css: style.css
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=10, fig.height=7, fig.path='Figs/',echo=TRUE, tidy=TRUE, warning=FALSE, message=FALSE)
+```
+
+## **Abstract**
+
+This report seek to examine the latest sitruation of COVID-19 in each country in order to give resoponce plan for New South Wales Government. It will first calculate the transmissibility(Confirmed cases Growth Rate), mortality, and then generate demongraphic data of each country from **World Bank DATA API** (Piburn.J,2018). Next I will investigate the correlation between Confirmed cases and Death with other factors. Use significant correlated factors, finding countries with similar condition as NSW and use their responce plan as reference. Based on Australia and NSW government policies, I will evaluate current measure as well as giving corresponding suggestions about future measure in NSW. 
+
+## **Introduction**
+
+
+The confirmed cases of global coronavirus surged past 300,000 on 22nd March, with more than 13,000 deaths worldwide, according to John Hopkins University.Austrlia is the first tier countries to annouce border restriction policies and nowadays more governments adopt lockdown measures. As WHO published *'recommendations for international traffic in relation to COVID-19 outbreak'* said,'restricting the movement of people and goods during public health emergencies is ineffective in most situations and may divert resources from other interventions'. Whether government should release the travel ban and how long should it take will be critical to minimise the loss of this virus. The aim of this report is to answer these two questions with correlation analysis and explain current status using visulisation. 
+
+## Analysis
+
+### Package import
+
+```{r Package import, message = FALSE}
+
+# Automatic install for required packages
+
+current_packages <- installed.packages()[,"Package"]
+
+required_packages <- c("coronavirus",
+                       "ggplot2",
+                       "ggthemes",
+                       "ggpubr",
+                       "plotly",
+                       "dplyr",
+                       "gganimate",
+                       "tidyverse",
+                       "wbstats",   
+                       "lubridate",
+                       "tidyr",
+                       "ggfortify",
+                       "qtlcharts",
+                       "RCurl",
+                       "RCurl",
+                       "XML",
+                       "formatR")
+
+packages_to_be_added <- required_packages[!(required_packages %in% current_packages)]
+
+if (length(packages_to_be_added) > 0) {
+  install.packages(packages_to_be_added)
+}
+
+# Package loading 
+
+library(coronavirus)
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+library(plotly)
+library(dplyr)
+library(gganimate)
+library(tidyverse)
+library(wbstats)   
+library(lubridate) 
+library(tidyr)
+library(ggfortify)
+library(qtlcharts)
+library(RCurl)
+library(RCurl)
+library(XML)
+library(formatR)
+```
+
+### Dataset import
+
+```{r Dataset import, message = FALSE}
+# world confirmed
+confirmed_world <- read.csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv", stringsAsFactors = FALSE,check.names =  FALSE)
+confirmed_world <- reshape2::melt(confirmed_world, id.vars = c("Province/State", "Country/Region", "Lat", "Long"), variable.name = "Date", value.name = "Confirmed")
+
+# world death 
+death_world <- read.csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv", stringsAsFactors = FALSE, check.names = FALSE)
+death_world <- reshape2::melt(death_world, id.vars = c("Province/State", "Country/Region", "Lat", "Long"), variable.name = "Date", value.name = "Death")
+
+# world recovered
+recovered_world <- read.csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv", stringsAsFactors = FALSE, check.names = FALSE)
+recovered_world <- reshape2::melt(recovered_world, id.vars = c("Province/State","Country/Region", "Lat", "Long"), variable.name = "Date", value.name = "Recovered")
+```
+
+### Data Scratch from website
+Scratch the likely source of infection in NSW from NSW government website
+```{r Data Scratch}
+Link_Nsw ='https://www.health.nsw.gov.au/Infectious/diseases/Pages/covid-19-latest.aspx'
+
+Web_scratch <- function(Link){
+  if(url.exists(Link)){
+  webpage <- getURL(Link);
+  webpage2 <- readLines(tc <- textConnection(webpage));close(tc);
+  pagetree <- htmlTreeParse(webpage2, error = function(...){}, useInternalNodes = TRUE);
+  }
+  tablehead <- xpathSApply(pagetree, "//table//th", xmlValue);
+  result <- xpathSApply(pagetree, "//table//td", xmlValue)
+  return(result)
+}
+
+result_nsw = Web_scratch(Link_Nsw)
+#Likely source of infection of confirmed cases reported in NSW
+# Overseas acquired, contact of confirmed case, Under investigation
+df_NSW_source <- tibble(Overseas = as.numeric(result_nsw[44]),
+              Local_contactConfirmed= as.numeric(result_nsw[46]),
+              Local_contactUnknown = as.numeric(result_nsw[48]),
+              UnderInvestigation = as.numeric(result_nsw[50]))
+```
+
+### Data Integration
+Integrate World data set from John Hopkins University and World Bank Demongraphic data. 
+```{r Data Integration,message=FALSE}
+world_history_data <- dplyr::left_join(confirmed_world, death_world, by = c("Province/State", "Country/Region", "Lat", "Long", "Date"))
+
+world_history_data <- dplyr::left_join(world_history_data, recovered_world, by = c("Province/State", "Country/Region", "Lat", "Long", "Date"))
+
+world_history_data$Date <- as.Date(as.character(world_history_data$Date), format = c("%m/%d/%y"))
+colnames(world_history_data) <- make.names(colnames(world_history_data))
+
+latest_date <- max(world_history_data$Date)
+
+world_history_data_lastwk <- world_history_data %>% 
+  group_by(Country.Region, Date) %>% 
+  filter(Date == latest_date-7) %>%
+  summarise(Confirmed_lk = sum(Confirmed)) %>%
+  arrange(desc(Confirmed_lk)) 
+
+world_history_data_summary <- world_history_data %>% 
+  group_by(Country.Region, Date) %>% 
+  filter(Date == latest_date) %>%
+  summarise(Confirmed = sum(Confirmed),
+            Recovered = sum(Recovered),
+            Death = sum(Death)) %>%
+  arrange(desc(Confirmed)) %>%
+  mutate(RecoveredRate = round(Recovered/Confirmed, 3),
+         mortality = round(Death/Confirmed, 3))
+
+world_history_data_summary <- dplyr::left_join(world_history_data_summary, world_history_data_lastwk, by = c("Country.Region"), keep = FALSE)
+
+# add week Growth Rate
+world_history_data_summary <- world_history_data_summary %>% mutate(GrowthRate= ifelse(Confirmed_lk >0,(Confirmed-Confirmed_lk)/Confirmed_lk,0))  %>% select(-c('Date.y','Confirmed_lk'))
+
+# add demongraphic data
+pop_data <- wb(indicator = c("SP.POP.TOTL","NY.GDP.MKTP.CD","SP.POP.65UP.TO.ZS","EN.POP.DNST","ST.INT.ARVL","ST.INT.DPRT"),mrv = 1) %>% select(country,indicatorID,value)
+pop_data <- spread(pop_data, indicatorID,value) %>% 
+  rename("GDP"="NY.GDP.MKTP.CD","Population"="SP.POP.TOTL","Aging_population"="SP.POP.65UP.TO.ZS","Population_density" = "EN.POP.DNST","Overseas_Arrival"="ST.INT.ARVL","Overseas_Departure"="ST.INT.DPRT") %>%  mutate(GDP_per_capita = GDP/Population, Aging_ratio = Aging_population/100) %>% select(-GDP,-Aging_population)
+
+country <- left_join(world_history_data_summary,pop_data, by = c("Country.Region"="country")) %>%mutate(text = paste("Country: ", Country.Region, 
+                              "\nPopulation: ", Population, 
+                              "\nGDP_per_capita: ",GDP_per_capita,
+                              "\nAging Ratio: ",Aging_ratio, 
+                              "\nPopulation Density",Population_density,
+                              "\nOverseas Arrival", Overseas_Arrival,
+                              "\nOverseas_Departure",Overseas_Departure,
+                              "\nConfirmed cases: ", Confirmed,
+                              "\nRecoveredRate: ", RecoveredRate,
+                              "\nMortality: ",mortality, 
+                              "\nGrowthRate",GrowthRate,sep="")) %>% drop_na()
+# Australian data by states
+australia_history_data <- world_history_data %>% filter(Country.Region == "Australia")
+
+oz_confirmed_lastwk <- australia_history_data %>% group_by(Province.State, Date) %>% filter(Date == latest_date-7, Province.State != 'From Diamond Princess') %>% 
+  summarise(Confirmed_lk = sum(Confirmed)) %>% 
+  arrange(desc(Confirmed_lk))
+
+oz_confirmed <- australia_history_data %>% group_by(Province.State, Date) %>% filter(Date == latest_date, Province.State != 'From Diamond Princess') %>% 
+  summarise(Confirmed = sum(Confirmed),Recovered = sum(Recovered),Death = sum(Death)) %>% 
+  arrange(desc(Confirmed)) %>%
+  mutate(RecoveredRate = round(Recovered/Confirmed, 3),
+         mortality = round(Death/Confirmed, 3))
+
+oz_confirmed <- dplyr::left_join(oz_confirmed, oz_confirmed_lastwk, by = c("Province.State"), keep = FALSE) 
+# get aus data
+oz_confirmed_summary <- oz_confirmed %>% 
+ mutate(GrowthRate= round((Confirmed - Confirmed_lk )/Confirmed_lk,3)) %>%
+  select(-c('Date.y','Confirmed_lk'))
+```
+
+#### **Interactive correlation matrix**
+```{R Correlation Plot}
+qtlcharts::iplotCorr(country[,c(3,4,5,7,8,9,10,11,12,13,14)]) 
+```
+
+Key finding: 
+
+It can be seen from the correlation matrix, Confirmed case number has high correlation with population, overseas arrival and overseas departure. Departure number happens for sure, as most travellers will choose to leave heavily infected countries, while arrival and population are more useful information for government: 
+- Large population countries are more in risk than small in iregards to virus outbreak;
+- Travel ban which resitrict tourism arriving in is necessary.
+- There is slightly positive correlation between Aging rate and Confirmed cases as well as aging rate with Death number. 
+- International tourism also accelerate Death rate. 
+
+Next I will investigate mainly those three vairiables in each countries: `population`, `Overseas Arraival` and 'Aging ratio'.
+
+### Draw Bblue plot of countries
+```{r}
+x <- getURL("https://raw.github.sydney.edu.au/xibi6298/COVID-19_NSW_policy_suggestion-/master/Travel_restricted_countries_by_0322.csv?token=AAABC2F2WBOMO62UNWMCJ726QCA2Y")
+country_restricted <- read.csv(text = x, header = FALSE)[,1]
+
+country_draw <- country %>% mutate(travel_restrict = ifelse(Country.Region %in% country_restricted,"closed borders","no restriction"),
+         GrowthRate = round(GrowthRate,2)) %>% filter(GrowthRate<10)
+breaks <- c(0, 2, 4, 6, 10)
+country_draw$GrowthRate_interval <- cut(country_draw$GrowthRate,breaks,include.lowest = T,right= T)
+
+ggplot(country_draw ,aes(x=log(Population), y=log(Overseas_Arrival), text = text,colour = GrowthRate,shape = travel_restrict))+
+  geom_point(aes(size = GrowthRate)) +
+  geom_text(aes(label=paste(Country.Region, GrowthRate)), hjust=0.2, nudge_x = 0.5, size=3, check_overlap = TRUE) + theme_classic() + 
+  xlab("log(Population)") +
+  ylab("log(Overseas Arrival)") +
+  ggtitle("Population-GDP-Death Correlation bubble plot (countries sharing similar condition as NSW)") +
+  scale_size_continuous(range=c(2,11)) +
+  labs(color = "Country",size = "GrowthRate*100%",shape = "Travel restriction")+
+  scale_color_gradient(low = "white", high = "red")
+
+```
+
+- From bubble plot, we can see countries with highest growth rate are still not publish any closing border policy, for example, Armenia and Chile. Furthermore, those countries have not very high tourism arriving data at the moment. Hennce once population shift in those countries accelarate, their confirmed cases growthing rate is very likely to increase even higher.
+- There are two countries should be mentioned Germany and New Zealand, which are Australian top trading partners, both are terriblly affected by Coronavirus infection and likely to face outbreak in their countries. The first priority for NSW government to do is strictly control and recorded population shift from these two countries. 
+
+### Find countries with similar infection status and aging ratio
+
+By 23th March, the latest data provided gives countries list with similar infection Growth rate, Death rate and Aging ratio are listed below: 
+```{r NSW ,fig.width=8,fig.height=6}
+# deleting outliers in mortality, GrowthRate and aging 
+
+#country_NSW$GrowthRate_interval <- cut(country_NSW$GrowthRate,breaks,include.lowest = T, right = F)
+
+Growth <-which(country$GrowthRate %in% boxplot.stats(country$GrowthRate)$out)
+Growth_sd <- sd(country[-Growth,]$GrowthRate)
+
+Death <-which(country$mortality %in% boxplot.stats(country$mortality)$out)
+Death_sd <- sd(country[-Death,]$mortality)
+
+Age <-which(country$Aging_ratio %in% boxplot.stats(country$Aging_ratio)$out)
+Age_sd <- sd(country$Aging_ratio)
+
+Growth_nsw = oz_confirmed_summary[oz_confirmed_summary$Province.State=='New South Wales',]$GrowthRate
+Death_nsw = oz_confirmed_summary[oz_confirmed_summary$Province.State=='New South Wales',]$mortality
+
+Aging_nsw <-  country %>% filter(Country.Region=='Australia') %>% select(Aging_ratio) %>% pull('Aging_ratio') %>% as.numeric() 
+
+country_list <- country %>% 
+  filter((GrowthRate <  Growth_nsw + 0.5*Growth_sd & GrowthRate > Growth_nsw - 0.5*Growth_sd) & (mortality <  Death_nsw + Death_sd & mortality > Death_nsw - Death_sd) & (Aging_ratio < Aging_nsw + Age_sd & Aging_ratio > Aging_nsw - Age_sd)) %>% pull(Country.Region)
+
+country_list <-  country_list[country_list %in% country$Country.Region]
+country_NSW <- country %>% filter(Country.Region %in% country_list) 
+country_list
+```
+
+In Germany, even though there is a high cases number, the death rate is pretty low compare to its neighborhood Italy, which has reported 4825 deaths and 53578 cases. Except for Italy has slightly 1 percent more Aging ratio, the accievement is relates to:
+- the advanced medical distribution system and;
+- Germany gorvernment swift measure imposed. 
+Unlike most countries, where national laboratiries had monopoly on testing, Germany's dense network of independent labs helped doctors to get the latest test result, and that reduce the lag of data updated. 
+Germany government adopted epidemic grading diagnosis process, which resitricted people who suspect that they are at risk can only call the local health telephone to ask a visit other than directly go to clinics. In this way, people will recive test in order and reduce the exposure to virus.  
+
+Another country not has similar background but get a pretty good achievement is singapore. In Singapore, details of patient life, work and play will soon be posted online so others can protect themselves. More detailed case and travel histories would be great under this special period. Only then we can fully use our resources to test the most likely cohort and quickly identify the infected people in NSW and Australia. 
+
+## **Results**
+Population, international tourism and high aging ratio are driven factor to outbreak of this pandemics. As aging-factor is hard to change in a short term, government should forcus on control both internation and local population shift. 
+In the short term,as most demographic data relating to infected cases isn’t available for all Australian cases.Data collection and sharing is on front, which will be used to test the most likely cohort and quickly identify the infected people in Australia. Government can try to adppted Germany epidemic grading diagnosis process and in the long term reform the medical system.  
+
+
+## **References**
+<div style="text-align: left"> 
+- Piburn, J. (2018). Retrieved 20 March 2020, from https://cran.r-project.org/web/packages/wbstats/wbstats.pdf
+- Latest updates on COVID-19 (Coronavirus) - Diseases. (2020). Retrieved 21 March 2020, from https://www.health.nsw.gov.au/Infectious/diseases/Pages/covid-19-latest.aspx
+</div>
